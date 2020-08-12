@@ -110,6 +110,7 @@ sys_time parse8601(const char* date)
 			return is_leap_year ? 29 : 28;
 		default:
 			assert(false);
+			return 0;
 		}
 	};
 
