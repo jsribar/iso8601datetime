@@ -11,19 +11,19 @@ using sys_time = std::chrono::time_point<std::chrono::system_clock, std::chrono:
 
 sys_time parse8601(const char* date)
 {
-	auto number = [](char*& ch, int count)
+	auto to_digit = [](char* ch)
 	{
-		auto digit = [](char* ch)
-		{
-			if (*ch < '0' || *ch > '9')
-				throw std::runtime_error("Not a digit");
-			return *ch - '0';
-		};
+		if (*ch < '0' || *ch > '9')
+			throw std::runtime_error("Not a digit");
+		return *ch - '0';
+	};
 
+	auto integer = [&to_digit](char*& ch, int digits)
+	{
 		int number{ 0 };
-		for (int i = 0; i < count; ++i)
+		for (int i = 0; i < digits; ++i)
 		{
-			number = number * 10 + digit(ch);
+			number = number * 10 + to_digit(ch);
 			++ch;
 		}
 		return number;
@@ -31,21 +31,52 @@ sys_time parse8601(const char* date)
 
 	char* ch = const_cast<char*>(date);
 
-	int cur_year = number(ch, 4);
+	int cur_year = integer(ch, 4);
 	if (*ch == '-')
 		++ch;
 
-	int cur_month = number(ch, 2);
+	int cur_month = integer(ch, 2);
 	if (*ch == '-')
 		++ch;
 
-	int days = number(ch, 2) - 1;
+	int days = integer(ch, 2) - 1;
 
-	// parse hours
+	if (*ch != 'T')
+		throw std::runtime_error("Delimiter 'T' is missing");
+	++ch;
 
-	// parse minutes
+	auto decimal = [&to_digit](char*& ch, int digits)
+	{
+		double number{ 0 };
+		for (int i = 0; i < digits; ++i)
+		{
+			number = number * 10 + to_digit(ch);
+			++ch;
+		}
+		if (*ch != '.' && *ch != ',')
+			return number;
+		++ch;
+		double divisor = 10;
+		while (*ch >= '0' && *ch <= '9')
+		{
+			number += to_digit(ch) / divisor;
+			++ch;
+			divisor *= 10;
+		}
+		return number;
+	};
 
-	// parse seconds
+	double hours = decimal(ch, 2);
+	if (*ch == ':')
+		++ch;
+
+	double minutes = decimal(ch, 2);
+	if (*ch == ':')
+		++ch;
+
+	double seconds = decimal(ch, 2);
+	if (*ch == '.')
+		++ch;
 
 	// parse offset
 
@@ -87,8 +118,8 @@ sys_time parse8601(const char* date)
 		days_in_current_year += days_in_month(cur_month);
 	days_in_current_year += days;
 
-	long long seconds = ((years * 365LL + number_of_leap_years) + days_in_current_year) * 24 * 60 * 60;
-	return sys_time(std::chrono::milliseconds(seconds * 1000));
+	seconds = ((((years * 365. + number_of_leap_years) + days_in_current_year) * 24 + hours) * 60 + minutes) * 60 + seconds;
+	return sys_time(std::chrono::milliseconds(static_cast<long long>(seconds * 1000)));
 }
 
 }
