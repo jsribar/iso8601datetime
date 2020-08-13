@@ -8,11 +8,9 @@
 
 namespace core::time {
 
-	using sys_time = std::chrono::time_point<std::chrono::system_clock, std::chrono::milliseconds>;
-
-	inline sys_time parse_iso8601datetime(std::string_view date)
+	template <typename Duration = std::chrono::seconds>
+	inline std::chrono::time_point<std::chrono::system_clock, Duration> parse_iso8601datetime(std::string_view date, bool allow_partial = false)
 	{
-		using ch_it = std::string_view::iterator;
 		using std::string_view;
 
 		// helper lambdas
@@ -37,8 +35,8 @@ namespace core::time {
 		};
 
 		auto decimal = [&to_digit, &is_digit](string_view& view, int digits) {
-			int number{ 0 };
-			int divisor{ 1 };
+			unsigned long long number{ 0 };
+			unsigned long long divisor{ 1 };
 			while (digits-- > 0)
 			{
 				if (view.empty())
@@ -122,10 +120,15 @@ namespace core::time {
 		unsigned int hours{ 0 };
 		unsigned int minutes{ 0 };
 		unsigned int seconds{ 0 };
-		unsigned int milliseconds{ 0 };
-		int          time_offset{ 0 };
+		unsigned long long decimals{ 0 };
+		long long time_offset{ 0 };
 
-		if (!date.empty())
+		if (date.empty())
+		{
+			if (!allow_partial)
+				throw std::runtime_error("Invalid date");
+		}
+		else
 		{
 			if (has_date_separator)
 			{
@@ -140,30 +143,45 @@ namespace core::time {
 			if (day < 1 || day > days_in_month(month, is_leap_year))
 				throw std::runtime_error("Invalid date");
 
-			if (!date.empty())
+			if (date.empty())
+			{
+				if (!allow_partial)
+					throw std::runtime_error("Invalid date");
+			}
+			else
 			{
 				if (date[0] != 'T')
 					throw std::runtime_error("Delimiter 'T' is missing");
 				date.remove_prefix(1);;
 
 				auto [digits, divisor] = decimal(date, 2);
-				hours = digits / divisor;
+				hours = static_cast<unsigned int>(digits / divisor);
 				if (hours > 24)
 					throw std::runtime_error("Invalid time");
 				if (divisor != 1)
-					milliseconds = digits % divisor * 60 * 60 / divisor * 1000;
-				else if (!date.empty())
+					decimals = digits % divisor * 60 * 60 * Duration::period::den / divisor;
+				else if (date.empty())
+				{
+					if (!allow_partial)
+						throw std::runtime_error("Invalid date");
+				}
+				else
 				{
 					bool has_time_separator = date[0] == ':';
 					if (has_time_separator)
 						date.remove_prefix(1);;
 
 					auto [digits, divisor] = decimal(date, 2);
-					minutes = digits / divisor;
+					minutes = static_cast<unsigned int>(digits / divisor);
 					if (minutes > 60 || (hours == 24 && minutes != 0))
 						throw std::runtime_error("Invalid time");
 					if (divisor != 1)
-						milliseconds = digits % divisor * 60 * 1000 / divisor;
+						decimals = digits % divisor * 60 * Duration::period::den / divisor;
+					else if (date.empty())
+					{
+						if (!allow_partial)
+							throw std::runtime_error("Invalid date");
+					}
 					else
 					{
 						if (has_time_separator)
@@ -174,9 +192,10 @@ namespace core::time {
 						}
 
 						auto [digits, divisor] = decimal(date, 2);
-						seconds = digits / divisor;
+						seconds = static_cast<unsigned int>(digits / divisor);
+						auto den = Duration::period::den;
 						if (divisor != 1)
-							milliseconds = digits % divisor * 1000 / divisor;
+							decimals = digits % divisor * Duration::period::den / divisor;
 					}
 				}
 				if (!date.empty())
@@ -221,11 +240,11 @@ namespace core::time {
 			(date::sys_days{ date::year{ year } / date::month{ month } / date::day{ day } } -
 				ref_timepoint)
 			.count();
-		return sys_time{ std::chrono::milliseconds(
+		return std::chrono::time_point<std::chrono::system_clock, Duration>{ Duration(
 			(((static_cast<long long>(number_of_days) * 24 + hours) * 60 + minutes + time_offset) * 60 +
-			 seconds) *
-				1000 +
-			milliseconds) };
+				seconds)*
+			Duration::period::den +
+			decimals) };
 	}
 
 } // namespace core::time
