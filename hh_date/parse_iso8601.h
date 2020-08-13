@@ -4,47 +4,55 @@
 
 #include <chrono>
 #include <stdexcept>
+#include <string_view>
 
 namespace core::time {
 
     using sys_time = std::chrono::time_point<std::chrono::system_clock, std::chrono::milliseconds>;
 
-    inline sys_time parse_iso8601(const char* date)
+    inline sys_time parse_iso8601(std::string_view date)
     {
-        // helper lambdas
-        auto is_digit = [](const char* ch) { return *ch >= '0' && *ch <= '9'; };
+        using ch_it = std::string_view::iterator;
+        using std::string_view;
 
-        auto to_digit = [&is_digit](const char* ch) {
+        // helper lambdas
+        auto is_digit = [](const char ch) { return ch >= '0' && ch <= '9'; };
+
+        auto to_digit = [&is_digit](const char ch) {
             if (!is_digit(ch))
                 throw std::runtime_error("Not a digit");
-            return *ch - '0';
+            return ch - '0';
         };
 
-        auto integer = [&to_digit](char*& ch, int digits) {
+        auto integer = [&to_digit](string_view& view, int digits) {
             unsigned int number{ 0 };
-            for (int i = 0; i < digits; ++i)
+            while (digits-- > 0)
             {
-                number = number * 10 + to_digit(ch);
-                ++ch;
+                if (view.empty())
+                    throw std::runtime_error("Missing digit");
+                number = number * 10 + to_digit(view[0]);
+                view.remove_prefix(1);
             }
             return number;
         };
 
-        auto decimal = [&to_digit, &is_digit](char*& ch, int digits) {
+        auto decimal = [&to_digit, &is_digit](string_view& view, int digits) {
             int number{ 0 };
             int divisor{ 1 };
-            for (int i = 0; i < digits; ++i)
+            while (digits-- > 0)
             {
-                number = number * 10 + to_digit(ch);
-                ++ch;
+                if (view.empty())
+                    throw std::runtime_error("Missing digit");
+                number = number * 10 + to_digit(view[0]);
+                view.remove_prefix(1);
             }
-            if (*ch == '.' || *ch == ',')
+            if (!view.empty() && (view[0] == '.' || view[0] == ','))
             {
-                ++ch;
-                while (is_digit(ch))
+                view.remove_prefix(1);
+                while (!view.empty() && is_digit(view[0]))
                 {
-                    number = number * 10 + to_digit(ch);
-                    ++ch;
+                    number = number * 10 + to_digit(view[0]);
+                    view.remove_prefix(1);
                     divisor *= 10;
                 }
             }
@@ -75,33 +83,38 @@ namespace core::time {
             }
         };
 
-        auto is_positive_sign = [](char*& ch) {
-            if (*ch == '+')
+        auto is_positive_sign = [](string_view& view) {
+            assert(!view.empty());
+            if (view[0] == '+')
             {
-                ++ch;
+                view.remove_prefix(1);
                 return true;
             }
-            if (*ch == '-')
+            if (view[0] == '-')
             {
-                ++ch;
+                view.remove_prefix(1);
                 return false;
             }
             // utf-8 minus sign
-            if (*ch++ == '\xe2' && *ch++ == '\x88' && *ch++ == '\x92')
+            if (view.size() > 3 && view.substr(0, 3) == "\xe2\x88\x92")
+            {
+                view.remove_prefix(3);
                 return false;
+            }
             throw std::runtime_error("Invalid time offset sign");
         };
 
         // here starts the actual code
-        char* ch = const_cast<char*>(date);
+        int year = integer(date, 4);
 
-        int year = integer(ch, 4);
+        if (date.empty())
+            throw std::runtime_error("Invalid date");
 
-        bool has_date_separator = *ch == '-';
+        bool has_date_separator = date[0] == '-';
         if (has_date_separator)
-            ++ch;
+            date.remove_prefix(1);
 
-        unsigned int month = integer(ch, 2);
+        unsigned int month = integer(date, 2);
         if (month < 1 || month > 12)
             throw std::runtime_error("Invalid date");
 
@@ -112,40 +125,40 @@ namespace core::time {
         unsigned int milliseconds{ 0 };
         int          time_offset{ 0 };
 
-        if (*ch != '\0')
+        if (!date.empty())
         {
             if (has_date_separator)
             {
-                if (*ch != '-')
+                if (date[0] != '-')
                     throw std::runtime_error("Date separator missing");
-                ++ch;
+                date.remove_prefix(1);
             }
 
-            day = integer(ch, 2);
+            day = integer(date, 2);
 
             bool is_leap_year = year % 400 == 0 ? true : (year % 100 == 0 ? false : year % 4 == 0);
             if (day < 1 || day > days_in_month(month, is_leap_year))
                 throw std::runtime_error("Invalid date");
 
-            if (*ch != '\0')
+            if (!date.empty())
             {
-                if (*ch != 'T')
+                if (date[0] != 'T')
                     throw std::runtime_error("Delimiter 'T' is missing");
-                ++ch;
+                date.remove_prefix(1);;
 
-                auto [digits, divisor] = decimal(ch, 2);
+                auto [digits, divisor] = decimal(date, 2);
                 hours = digits / divisor;
                 if (hours > 24)
                     throw std::runtime_error("Invalid time");
                 if (divisor != 1)
                     milliseconds = digits % divisor * 60 * 60 / divisor * 1000;
-                else if (*ch != '\0')
+                else if (!date.empty())
                 {
-                    bool has_time_separator = *ch == ':';
+                    bool has_time_separator = date[0] == ':';
                     if (has_time_separator)
-                        ++ch;
+                        date.remove_prefix(1);;
 
-                    auto [digits, divisor] = decimal(ch, 2);
+                    auto [digits, divisor] = decimal(date, 2);
                     minutes = digits / divisor;
                     if (minutes > 60 || (hours == 24 && minutes != 0))
                         throw std::runtime_error("Invalid time");
@@ -155,38 +168,38 @@ namespace core::time {
                     {
                         if (has_time_separator)
                         {
-                            if (*ch != ':')
+                            if (date[0] != ':')
                                 throw std::runtime_error("Time separator missing");
-                            ++ch;
+                            date.remove_prefix(1);;
                         }
 
-                        auto [digits, divisor] = decimal(ch, 2);
+                        auto [digits, divisor] = decimal(date, 2);
                         seconds = digits / divisor;
                         if (divisor != 1)
                             milliseconds = digits % divisor * 1000 / divisor;
                     }
                 }
-                if (*ch != '\0')
+                if (!date.empty())
                 {
-                    if (*ch == 'Z')
-                        ++ch;
+                    if (date[0] == 'Z')
+                        date.remove_prefix(1);
                     else
                     {
                         // time offset
-                        bool is_offset_positive = is_positive_sign(ch);
-                        auto hours_offset = integer(ch, 2);
+                        bool is_offset_positive = is_positive_sign(date);
+                        auto hours_offset = integer(date, 2);
                         if ((is_offset_positive && hours_offset > 14) || hours_offset > 12)
                             throw std::runtime_error("Invalid time offset");
 
                         time_offset = hours_offset * 60;
 
-                        if (*ch != '\0')
+                        if (!date.empty())
                         {
-                            if (*ch != ':')
+                            if (date[0] != ':')
                                 throw std::runtime_error("Missing time offset separator");
-                            ++ch;
+                            date.remove_prefix(1);;
 
-                            auto minutes_offset = integer(ch, 2);
+                            auto minutes_offset = integer(date, 2);
                             if (minutes_offset >= 60)
                                 throw std::runtime_error("Invalid time offset");
                             time_offset += minutes_offset;
@@ -194,10 +207,10 @@ namespace core::time {
                         if (is_offset_positive)
                             time_offset = -time_offset;
                     }
-                    if (*ch != '\0')
+                    if (!date.empty())
                         throw std::runtime_error("Invalid termination");
                 }
-                assert(*ch == '\0');
+                assert(date.empty());
             }
         }
 

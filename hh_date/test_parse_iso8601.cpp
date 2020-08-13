@@ -310,6 +310,25 @@ TEST_CASE("parse_iso8601 returns valid date&time for a given timezone offset")
     }
 }
 
+TEST_CASE("parse_iso8601 throws exception for invalid string")
+{
+    {
+        CHECK_THROWS(parse_iso8601("Z"));
+    }
+    {
+        CHECK_THROWS(parse_iso8601("T"));
+    }
+    {
+        CHECK_THROWS(parse_iso8601("-"));
+    }
+    {
+        CHECK_THROWS(parse_iso8601(":"));
+    }
+    {
+        CHECK_THROWS(parse_iso8601("A"));
+    }
+}
+
 TEST_CASE("parse_iso8601 throws exception for invalid number of digits in date or time")
 {
     {
@@ -341,6 +360,9 @@ TEST_CASE("parse_iso8601 throws exception for invalid number of digits in date o
     }
     {
         CHECK_THROWS(parse_iso8601("19701"));
+    }
+    {
+        CHECK_THROWS(parse_iso8601("1970"));
     }
 }
 
