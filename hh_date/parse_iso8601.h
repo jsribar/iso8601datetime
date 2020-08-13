@@ -121,7 +121,7 @@ namespace core::time {
 		unsigned int minutes{ 0 };
 		unsigned int seconds{ 0 };
 		unsigned long long decimals{ 0 };
-		long long time_offset{ 0 };
+		int time_offset{ 0 };
 
 		if (date.empty())
 		{
@@ -193,7 +193,6 @@ namespace core::time {
 
 						auto [digits, divisor] = decimal(date, 2);
 						seconds = static_cast<unsigned int>(digits / divisor);
-						auto den = Duration::period::den;
 						if (divisor != 1)
 							decimals = digits % divisor * Duration::period::den / divisor;
 					}
