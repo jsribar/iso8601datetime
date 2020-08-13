@@ -82,10 +82,8 @@ sys_time parse8601(const char* date)
 
 	int years = cur_year - 1970;
 	int number_of_leap_years = (cur_year - 1969) / 4;
-	if ((cur_year - 1901) % 100 == 0) // && (cur_year - 1601) % 400 != 0)
-		number_of_leap_years -= (cur_year - 2001) / 100;
-	if ((cur_year - 1601) % 400 != 0)
-		number_of_leap_years += (cur_year - 2001) / 400;
+	number_of_leap_years -= (cur_year - 2001) / 100;
+	number_of_leap_years += (cur_year - 2001) / 400;
 
 	bool is_leap_year = (cur_year % 400 == 0) ? true : (cur_year % 100 == 0 ? false : cur_year % 4 == 0);
 
