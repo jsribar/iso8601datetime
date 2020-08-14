@@ -17,8 +17,7 @@ enum class iso8601_required {
 };
 
 template <typename Duration = std::chrono::seconds>
-inline std::chrono::time_point<std::chrono::system_clock, Duration>
-parse_iso8601datetime(std::string_view date, iso8601_required required = iso8601_required::YYYYMMDDhhmmss)
+inline std::chrono::time_point<std::chrono::system_clock, Duration> parse_iso8601datetime(std::string_view date, iso8601_required required = iso8601_required::YYYYMMDDhhmmss)
 {
     using std::string_view;
 
@@ -32,41 +31,59 @@ parse_iso8601datetime(std::string_view date, iso8601_required required = iso8601
         return ch - '0';
     };
 
-    auto integer = [&to_digit](string_view& view, int digits)
+    auto integer = [&to_digit, &date](int digits)
     {
         unsigned int number{ 0 };
         while (digits-- > 0)
         {
-            if (view.empty())
+            if (date.empty())
                 throw std::runtime_error("Missing digit");
-            number = number * 10 + to_digit(view[0]);
-            view.remove_prefix(1);
+            number = number * 10 + to_digit(date[0]);
+            date.remove_prefix(1);
         }
         return number;
     };
 
-    auto decimal = [&to_digit, &is_digit](string_view& view, int digits)
+    auto decimal = [&to_digit, &is_digit, &date](int digits)
     {
         unsigned long long number{ 0 };
         unsigned long long divisor{ 1 };
         while (digits-- > 0)
         {
-            if (view.empty())
+            if (date.empty())
                 throw std::runtime_error("Missing digit");
-            number = number * 10 + to_digit(view[0]);
-            view.remove_prefix(1);
+            number = number * 10 + to_digit(date[0]);
+            date.remove_prefix(1);
         }
-        if (!view.empty() && (view[0] == '.' || view[0] == ','))
+        if (!date.empty() && (date[0] == '.' || date[0] == ','))
         {
-            view.remove_prefix(1);
-            while (!view.empty() && is_digit(view[0]))
+            date.remove_prefix(1);
+            while (!date.empty() && is_digit(date[0]))
             {
-                number = number * 10 + to_digit(view[0]);
-                view.remove_prefix(1);
+                number = number * 10 + to_digit(date[0]);
+                date.remove_prefix(1);
                 divisor *= 10;
             }
         }
         return std::make_pair(number, divisor);
+    };
+
+    auto process_separator = [&date](int index, bool& has_separator, char separator)
+    {
+        switch (index)
+        {
+        case 0:
+            has_separator = date[0] == separator;
+            break;
+        case 1:
+            if (has_separator != (date[0] == separator))
+                throw std::runtime_error("Separator missing");
+            break;
+        default:
+            throw std::runtime_error("Invalid termination");
+        }
+        if (has_separator)
+            date.remove_prefix(1);
     };
 
     auto is_leap_year = [](int year)
@@ -99,23 +116,23 @@ parse_iso8601datetime(std::string_view date, iso8601_required required = iso8601
         }
     };
 
-    auto is_positive_sign = [](string_view& view)
+    auto is_positive_sign = [&date]()
     {
-        assert(!view.empty());
-        if (view[0] == '+')
+        assert(!date.empty());
+        if (date[0] == '+')
         {
-            view.remove_prefix(1);
+            date.remove_prefix(1);
             return true;
         }
-        if (view[0] == '-')
+        if (date[0] == '-')
         {
-            view.remove_prefix(1);
+            date.remove_prefix(1);
             return false;
         }
         // utf-8 minus sign
-        if (view.size() > 3 && view.substr(0, 3) == "\xe2\x88\x92")
+        if (date.size() > 3 && date.substr(0, 3) == "\xe2\x88\x92")
         {
-            view.remove_prefix(3);
+            date.remove_prefix(3);
             return false;
         }
         throw std::runtime_error("Invalid time offset sign");
@@ -174,9 +191,17 @@ parse_iso8601datetime(std::string_view date, iso8601_required required = iso8601
         }
     };
 
-    // here starts the actual code
-    unsigned int month{ 1 };
-    unsigned int day{ 1 };
+    // here starts the actual code!
+    union
+    {
+        unsigned int date_components[3];
+        struct
+        {
+            int year;
+            unsigned int month;
+            unsigned int day;
+        } d{ 0, 1, 1 };
+    };
 
     union
     {
@@ -192,102 +217,79 @@ parse_iso8601datetime(std::string_view date, iso8601_required required = iso8601
     unsigned long long decimals{ 0 };
     timezone_offset_t offset{ true, 0, 0 };
 
-    int year = integer(date, 4);
     int parsed{ 0 };
+
+    auto is_end_of_date = [&date]() { return date.empty() || date[0] == 'T'; };
+    // read year, month, day
+    int digits{ 4 };
+    bool has_separator{ false };
+    for (int i = 0; i < 3; ++i)
+    {
+        date_components[i] = integer(digits);
+
+        if (is_end_of_date())
+            break;
+
+        ++parsed;
+        digits = 2;
+        process_separator(i, has_separator, '-');
+    }
 
     if (!date.empty())
     {
-        bool has_date_separator = date[0] == '-';
-        if (has_date_separator)
-            date.remove_prefix(1);
+        if (date[0] != 'T')
+            throw std::runtime_error("Delimiter 'T' is missing");
+        date.remove_prefix(1);
 
-        month = integer(date, 2);
-        ++parsed;
+        constexpr unsigned long long multipliers[]
+        {
+            60 * 60 * Duration::period::den,
+            60 * Duration::period::den,
+            Duration::period::den
+        };
+
+        auto is_end_of_time = [&date]()
+        {
+            return date.empty() || date[0] == 'Z' || date[0] == '+' ||
+                date[0] == '-' || date[0] == '\xe2';
+        };
+        // hours, minutes, seconds
+        for (int i = 0; i < 3; ++i)
+        {
+            auto [digits, divisor] = decimal(2);
+            time_components[i] = static_cast<unsigned int>(digits / divisor);
+            ++parsed;
+            if (divisor != 1)
+                decimals = digits % divisor * multipliers[i] / divisor;
+
+            if (is_end_of_time())
+                break;
+
+            process_separator(i, has_separator, ':');
+        }
 
         if (!date.empty())
         {
-            if (has_date_separator)
-            {
-                if (date[0] != '-')
-                    throw std::runtime_error("Date separator missing");
+            if (date[0] == 'Z')
                 date.remove_prefix(1);
-            }
-
-            day = integer(date, 2);
-            ++parsed;
-
-            if (!date.empty())
-            {
-                if (date[0] != 'T')
-                    throw std::runtime_error("Delimiter 'T' is missing");
-                date.remove_prefix(1);
-
-                constexpr unsigned long long multipliers[]
-                {
-                    60 * 60 * Duration::period::den,
-                    60 * Duration::period::den,
-                    Duration::period::den
-                };
-
-                auto is_end_of_time = [&date]()
-                {
-                    return date.empty() || date[0] == 'Z' || date[0] == '+' ||
-                        date[0] == '-' || date[0] == '\xe2';
-                };
-
-                bool has_time_separator{ false };
-
-                for (int i = 0; i < 3; ++i)
-                {
-                    auto [digits, divisor] = decimal(date, 2);
-                    time_components[i] = static_cast<unsigned int>(digits / divisor);
-                    ++parsed;
-                    if (divisor != 1)
-                        decimals = digits % divisor * multipliers[i] / divisor;
-
-                    if (is_end_of_time())
-                        break;
-
-                    switch (i)
-                    {
-                    case 0:
-                        has_time_separator = date[0] == ':';
-                        break;
-                    case 1:
-                        if (has_time_separator != (date[0] == ':'))
-                            throw std::runtime_error("Time separator missing");
-                        break;
-                    default:
-                        throw std::runtime_error("Invalid termination");
-                    }
-                    if (has_time_separator)
-                        date.remove_prefix(1);
-                }
+            else {
+                // timezone offset
+                offset.positive = is_positive_sign();
+                offset.hours = integer(2);
 
                 if (!date.empty())
                 {
-                    if (date[0] == 'Z')
-                        date.remove_prefix(1);
-                    else {
-                        // timezone offset
-                        offset.positive = is_positive_sign(date);
-                        offset.hours = integer(date, 2);
+                    if (date[0] != ':')
+                        throw std::runtime_error("Missing time offset separator");
+                    date.remove_prefix(1);
 
-                        if (!date.empty())
-                        {
-                            if (date[0] != ':')
-                                throw std::runtime_error("Missing time offset separator");
-                            date.remove_prefix(1);
-
-                            offset.minutes = integer(date, 2);
-                        }
-                    }
-                    if (!date.empty())
-                        throw std::runtime_error("Invalid termination");
+                    offset.minutes = integer(2);
                 }
-                assert(date.empty());
             }
+            if (!date.empty())
+                throw std::runtime_error("Invalid termination");
         }
+        assert(date.empty());
     }
 
     if (parsed < static_cast<int>(required))
@@ -297,7 +299,7 @@ parse_iso8601datetime(std::string_view date, iso8601_required required = iso8601
         throw std::runtime_error("Incomplete time");
     }
 
-    if (month < 1 || month > 12 || day < 1 || day > days_in_month(month, year))
+    if (d.month < 1 || d.month > 12 || d.day < 1 || d.day > days_in_month(d.month, d.year))
         throw std::runtime_error("Invalid date");
 
     // 60 seconds is used to denote an added leap second
@@ -313,7 +315,7 @@ parse_iso8601datetime(std::string_view date, iso8601_required required = iso8601
     constexpr date::sys_days ref_tp{ date::year{1970} / date::month{1} / date::day{1} };
 
     long long days =
-        (date::sys_days{ date::year{year} / date::month{month} / date::day{day} } -
+        (date::sys_days{ date::year{ d.year } / date::month{ d.month } / date::day{ d.day } } -
             ref_tp)
         .count();
     auto count =
@@ -321,7 +323,6 @@ parse_iso8601datetime(std::string_view date, iso8601_required required = iso8601
             t.seconds) *
         Duration::period::den +
         decimals;
-    return std::chrono::time_point<std::chrono::system_clock, Duration>{
-        Duration{ count }};
+    return std::chrono::time_point<std::chrono::system_clock, Duration>{ Duration{ count } };
 }
 } // namespace core::time
