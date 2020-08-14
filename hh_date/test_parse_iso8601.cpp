@@ -92,13 +92,18 @@ TEST_CASE("parse_iso8601 returns valid date&time for a general date and time for
 		ss << parse_iso8601datetime<std::chrono::nanoseconds>("2020-08-13T23:10:13.123456789Z");
 		CHECK(ss.str() == "2020-08-13 23:10:13.123456789");
 	}
-
-	// TODO: implement for larger periods (minutes, hours)
-	//{
-	//	ostringstream ss;
-	//	ss << parse_iso8601datetime<std::chrono::minutes>("2020-08-13T23:10:13Z");
-	//	CHECK(ss.str() == "2020-08-13 23:10");
-	//}
+	// minutes
+	{
+		ostringstream ss;
+		ss << parse_iso8601datetime<std::chrono::minutes>("2020-01-02T01:00:30.987Z");
+		CHECK(ss.str() == "2020-01-02 01:00:00");
+	}
+	// hours
+	{
+		ostringstream ss;
+		ss << parse_iso8601datetime<std::chrono::hours>("2020-01-02T01:30:30Z");
+		CHECK(ss.str() == "2020-01-02 01:00:00");
+	}
 }
 
 TEST_CASE("parse_iso8601 returns valid date&time for a general date and time when required extends components provided")

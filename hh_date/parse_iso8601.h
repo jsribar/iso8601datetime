@@ -243,8 +243,8 @@ inline std::chrono::time_point<std::chrono::system_clock, Duration> parse_iso860
 
         constexpr unsigned long long multipliers[]
         {
-            60 * 60 * Duration::period::den,
-            60 * Duration::period::den,
+            Duration::period::den * 60 * 60,
+            Duration::period::den * 60,
             Duration::period::den
         };
 
@@ -253,7 +253,7 @@ inline std::chrono::time_point<std::chrono::system_clock, Duration> parse_iso860
             return date.empty() || date[0] == 'Z' || date[0] == '+' ||
                 date[0] == '-' || date[0] == '\xe2';
         };
-        // hours, minutes, seconds
+        // read hours, minutes, seconds
         for (int i = 0; i < 3; ++i)
         {
             auto [digits, divisor] = decimal(2);
@@ -273,7 +273,7 @@ inline std::chrono::time_point<std::chrono::system_clock, Duration> parse_iso860
             if (date[0] == 'Z')
                 date.remove_prefix(1);
             else {
-                // timezone offset
+                // read timezone offset
                 offset.positive = is_positive_sign();
                 offset.hours = integer(2);
 
@@ -312,17 +312,14 @@ inline std::chrono::time_point<std::chrono::system_clock, Duration> parse_iso860
     if (!is_valid_timezone_offset(offset))
         throw std::runtime_error("Invalid timezone offset");
 
-    constexpr date::sys_days ref_tp{ date::year{1970} / date::month{1} / date::day{1} };
+    constexpr date::sys_days ref_tp{ date::year{ 1970 } / date::month{ 1 } / date::day{ 1 } };
 
-    long long days =
-        (date::sys_days{ date::year{ d.year } / date::month{ d.month } / date::day{ d.day } } -
-            ref_tp)
-        .count();
-    auto count =
-        (((days * 24 + t.hours) * 60 + t.minutes - offset.to_minutes()) * 60 +
-            t.seconds) *
-        Duration::period::den +
-        decimals;
+    long long days = (date::sys_days{ date::year{ d.year } / date::month{ d.month } / date::day{ d.day } } - ref_tp).count();
+
+    auto count = ((((days * 24 + t.hours) * 60 + t.minutes - offset.to_minutes()) * 60 + t.seconds) *
+        Duration::period::den + decimals) / Duration::period::num;
+
     return std::chrono::time_point<std::chrono::system_clock, Duration>{ Duration{ count } };
 }
+
 } // namespace core::time
