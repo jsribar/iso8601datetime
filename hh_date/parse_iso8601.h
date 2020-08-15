@@ -71,18 +71,6 @@ inline time_point<Duration> parse_iso8601datetime(std::string_view date, iso8601
         return std::make_pair(number, divisor);
     };
 
-    boost::tribool has_separator{ boost::indeterminate };
-
-    auto process_separator = [&date, &has_separator](char separator)
-    {
-        if (indeterminate(has_separator))
-            has_separator = date[0] == separator;
-        else if (has_separator != (date[0] == separator))
-            throw std::runtime_error("Separator missing");
-        if (has_separator)
-            date.remove_prefix(1);
-    };
-
     auto is_positive_sign = [&date]()
     {
         assert(!date.empty());
@@ -186,6 +174,18 @@ inline time_point<Duration> parse_iso8601datetime(std::string_view date, iso8601
     timezone_offset_t offset{ true, 0, 0 };
 
     int parsed{ 0 };
+
+    boost::tribool has_separator{ boost::indeterminate };
+
+    auto process_separator = [&date, &has_separator](char separator)
+    {
+        if (indeterminate(has_separator))
+            has_separator = date[0] == separator;
+        else if (has_separator != (date[0] == separator))
+            throw std::runtime_error("Separator missing");
+        if (has_separator)
+            date.remove_prefix(1);
+    };
 
     auto is_end_of_date = [&date]() { return date.empty() || date[0] == 'T'; };
     // read year, month, day
