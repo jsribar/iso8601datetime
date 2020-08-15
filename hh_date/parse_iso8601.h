@@ -1,12 +1,14 @@
 #pragma once
 
 #include <date/date.h>
+#include <boost/logic/tribool.hpp>
 
 #include <chrono>
 #include <stdexcept>
 #include <string_view>
 
 namespace core::time {
+
 enum class iso8601_required {
     YYYY,
     YYYYMM,
@@ -16,11 +18,12 @@ enum class iso8601_required {
     YYYYMMDDhhmmss,
 };
 
-template <typename Duration = std::chrono::seconds>
-inline std::chrono::time_point<std::chrono::system_clock, Duration> parse_iso8601datetime(std::string_view date, iso8601_required required = iso8601_required::YYYYMMDDhhmmss)
-{
-    using std::string_view;
+template <class Duration = std::chrono::seconds>
+using time_point = std::chrono::time_point<std::chrono::system_clock, Duration>;
 
+template <typename Duration = std::chrono::seconds>
+inline time_point<Duration> parse_iso8601datetime(std::string_view date, iso8601_required required = iso8601_required::YYYYMMDDhhmmss)
+{
     // helper lambdas
     auto is_digit = [](const char ch) { return ch >= '0' && ch <= '9'; };
 
@@ -68,52 +71,16 @@ inline std::chrono::time_point<std::chrono::system_clock, Duration> parse_iso860
         return std::make_pair(number, divisor);
     };
 
-    auto process_separator = [&date](int index, bool& has_separator, char separator)
+    boost::tribool has_separator{ boost::indeterminate };
+
+    auto process_separator = [&date, &has_separator](char separator)
     {
-        switch (index)
-        {
-        case 0:
+        if (indeterminate(has_separator))
             has_separator = date[0] == separator;
-            break;
-        case 1:
-            if (has_separator != (date[0] == separator))
-                throw std::runtime_error("Separator missing");
-            break;
-        default:
-            throw std::runtime_error("Invalid termination");
-        }
+        else if (has_separator != (date[0] == separator))
+            throw std::runtime_error("Separator missing");
         if (has_separator)
             date.remove_prefix(1);
-    };
-
-    auto is_leap_year = [](int year)
-    {
-        return year % 400 == 0 ? true : (year % 100 == 0 ? false : year % 4 == 0);
-    };
-
-    auto days_in_month = [&is_leap_year](unsigned int month, int year)
-    {
-        switch (month)
-        {
-        case 4:
-        case 6:
-        case 9:
-        case 11:
-            return 30u;
-        case 1:
-        case 3:
-        case 5:
-        case 7:
-        case 8:
-        case 10:
-        case 12:
-            return 31u;
-        case 2:
-            return is_leap_year(year) ? 29u : 28u;
-        default:
-            assert(false);
-            return 0u;
-        }
     };
 
     auto is_positive_sign = [&date]()
@@ -140,54 +107,55 @@ inline std::chrono::time_point<std::chrono::system_clock, Duration> parse_iso860
 
     struct timezone_offset_t
     {
+        bool positive;
+        unsigned int hours;
+        unsigned int minutes;
+
         int to_minutes() const noexcept
         {
             int result = hours * 60 + minutes;
             return positive ? result : -result;
         }
-        bool positive;
-        unsigned int hours;
-        unsigned int minutes;
-    };
-
-    auto is_valid_timezone_offset = [](const timezone_offset_t& offset)
-    {
-        switch (offset.minutes)
+        // valid time zone offsets: https://en.wikipedia.org/wiki/List_of_UTC_time_offsets
+        bool ok() const noexcept
         {
-        case 0:
-            return offset.hours <= 12 || (offset.positive && offset.hours <= 14);
-        case 30:
-            if (offset.positive)
-                switch (offset.hours)
-                {
-                case 3:
-                case 4:
-                case 5:
-                case 6:
-                case 9:
-                case 10:
-                    return true;
-                }
-            else
-                switch (offset.hours)
-                {
-                case 3:
-                case 9:
-                    return true;
-                }
-            return false;
-        case 45:
-            if (offset.positive)
-                switch (offset.hours)
-                {
-                case 5:
-                case 8:
-                case 12:
-                    return true;
-                }
-            return false;
-        default:
-            return false;
+            switch (minutes)
+            {
+            case 0:
+                return hours <= 12 || (positive && hours <= 14);
+            case 30:
+                if (positive)
+                    switch (hours)
+                    {
+                    case 3:
+                    case 4:
+                    case 5:
+                    case 6:
+                    case 9:
+                    case 10:
+                        return true;
+                    }
+                else
+                    switch (hours)
+                    {
+                    case 3:
+                    case 9:
+                        return true;
+                    }
+                return false;
+            case 45:
+                if (positive)
+                    switch (hours)
+                    {
+                    case 5:
+                    case 8:
+                    case 12:
+                        return true;
+                    }
+                return false;
+            default:
+                return false;
+            }
         }
     };
 
@@ -222,7 +190,6 @@ inline std::chrono::time_point<std::chrono::system_clock, Duration> parse_iso860
     auto is_end_of_date = [&date]() { return date.empty() || date[0] == 'T'; };
     // read year, month, day
     int digits{ 4 };
-    bool has_separator{ false };
     for (int i = 0; i < 3; ++i)
     {
         date_components[i] = integer(digits);
@@ -232,13 +199,15 @@ inline std::chrono::time_point<std::chrono::system_clock, Duration> parse_iso860
 
         ++parsed;
         digits = 2;
-        process_separator(i, has_separator, '-');
+        process_separator('-');
     }
 
     if (!date.empty())
     {
+        if (parsed < 2)
+            throw std::runtime_error("Incomplete date");
         if (date[0] != 'T')
-            throw std::runtime_error("Delimiter 'T' is missing");
+            throw std::runtime_error("Delimiter 'T' is missing after date");
         date.remove_prefix(1);
 
         constexpr unsigned long long multipliers[]
@@ -265,7 +234,7 @@ inline std::chrono::time_point<std::chrono::system_clock, Duration> parse_iso860
             if (is_end_of_time())
                 break;
 
-            process_separator(i, has_separator, ':');
+            process_separator(':');
         }
 
         if (!date.empty())
@@ -292,6 +261,7 @@ inline std::chrono::time_point<std::chrono::system_clock, Duration> parse_iso860
         assert(date.empty());
     }
 
+    // perform checks
     if (parsed < static_cast<int>(required))
     {
         if (parsed < static_cast<int>(iso8601_required::YYYYMMDD))
@@ -299,7 +269,13 @@ inline std::chrono::time_point<std::chrono::system_clock, Duration> parse_iso860
         throw std::runtime_error("Incomplete time");
     }
 
-    if (d.month < 1 || d.month > 12 || d.day < 1 || d.day > days_in_month(d.month, d.year))
+    using date::year;
+    using date::month;
+    using date::day;
+    using date::year_month_day;
+
+    const year_month_day& ymd{ year{ d.year }, month{ d.month }, day{ d.day } };
+    if (!ymd.ok())
         throw std::runtime_error("Invalid date");
 
     // 60 seconds is used to denote an added leap second
@@ -309,17 +285,17 @@ inline std::chrono::time_point<std::chrono::system_clock, Duration> parse_iso860
         t.minutes > 59 || t.seconds > 60 || (t.seconds == 60 && decimals != 0))
         throw std::runtime_error("Invalid time");
 
-    if (!is_valid_timezone_offset(offset))
+    if (!offset.ok())
         throw std::runtime_error("Invalid timezone offset");
 
-    constexpr date::sys_days ref_tp{ date::year{ 1970 } / date::month{ 1 } / date::day{ 1 } };
+    using date::sys_days;
 
-    long long days = (date::sys_days{ date::year{ d.year } / date::month{ d.month } / date::day{ d.day } } - ref_tp).count();
+    constexpr sys_days ref_tp{ year{ 1970 } / month{ 1 } / day{ 1 } };
 
+    long long days = (sys_days{ ymd } - ref_tp).count();
     auto count = ((((days * 24 + t.hours) * 60 + t.minutes - offset.to_minutes()) * 60 + t.seconds) *
         Duration::period::den + decimals) / Duration::period::num;
-
-    return std::chrono::time_point<std::chrono::system_clock, Duration>{ Duration{ count } };
+    return time_point<Duration>{ Duration{ count } };
 }
 
 } // namespace core::time

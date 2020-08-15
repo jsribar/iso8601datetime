@@ -340,18 +340,18 @@ TEST_CASE("parse_iso8601 returns valid date&time for a general date and time for
 {
 	{
 		ostringstream ss;
-		ss << parse_iso8601datetime<std::chrono::milliseconds>("19700101T23:10:13Z");
-		CHECK(ss.str() == "1970-01-01 23:10:13.000");
+		ss << parse_iso8601datetime("19000228T231013Z");
+		CHECK(ss.str() == "1900-02-28 23:10:13");
 	}
 	{
 		ostringstream ss;
-		ss << parse_iso8601datetime<std::chrono::milliseconds>("19000228T231013Z");
-		CHECK(ss.str() == "1900-02-28 23:10:13.000");
+		ss << parse_iso8601datetime<std::chrono::milliseconds>("19000228T231013,10Z");
+		CHECK(ss.str() == "1900-02-28 23:10:13.100");
 	}
 	{
 		ostringstream ss;
-		ss << parse_iso8601datetime<std::chrono::milliseconds>("21200530T23:10:13Z");
-		CHECK(ss.str() == "2120-05-30 23:10:13.000");
+		ss << parse_iso8601datetime<std::chrono::milliseconds>("19000228T2310Z", iso8601_required::YYYYMMDDhh);
+		CHECK(ss.str() == "1900-02-28 23:10:00.000");
 	}
 }
 
@@ -522,6 +522,9 @@ TEST_CASE("parse_iso8601 throws exception for invalid number of digits in date o
 
 TEST_CASE("parse_iso8601 throws exception for nonconsistent date and time separators")
 {
+	CHECK_THROWS(parse_iso8601datetime("1970-01-01T231013Z"));
+	CHECK_THROWS(parse_iso8601datetime("19700101T23:10:13Z"));
+
 	CHECK_THROWS(parse_iso8601datetime("1970-0101T23:10:13Z"));
 	CHECK_THROWS(parse_iso8601datetime("197001-01T23:10:13Z"));
 	CHECK_THROWS(parse_iso8601datetime("1970-01-01T23:1013Z"));
@@ -552,28 +555,43 @@ TEST_CASE("parse_iso8601 throws exception if date and time are not terminated co
 	CHECK_THROWS(parse_iso8601datetime("1970-01-01T23:10:13-01Z"));
 }
 
+TEST_CASE("parse_iso8601 throws exception if date is incomplete but time is required")
+{
+	CHECK_THROWS(parse_iso8601datetime("1970-01T23:10:13Z"));
+	CHECK_THROWS(parse_iso8601datetime("197001T23:10:13"));
+
+	CHECK_THROWS(parse_iso8601datetime("1970-01T23:10:13Z", iso8601_required::YYYYMMDD));
+	CHECK_THROWS(parse_iso8601datetime("197001T23:10:13", iso8601_required::YYYYMMDD));
+}
+
 TEST_CASE("parse_iso8601 throws exception for invalid date or time")
 {
-	// invalid month
+	// invalid month value
 	CHECK_THROWS(parse_iso8601datetime("1970-13-01T23:10:13"));
 	CHECK_THROWS(parse_iso8601datetime("1970-00-01T23:10:13"));
-	// invalid day
+	// invalid day value
 	CHECK_THROWS(parse_iso8601datetime("1970-01-35T23:10:13"));
 	CHECK_THROWS(parse_iso8601datetime("1970-01-00T23:10:13"));
 	// nonexistent date
 	CHECK_THROWS(parse_iso8601datetime("1970-02-29T23:10:13"));
 	CHECK_THROWS(parse_iso8601datetime("1900-02-29T23:10:13Z"));
-
-	// invalid hours
+	// invalid hours value
+	CHECK_THROWS(parse_iso8601datetime("1970-01-01T25:00:00Z"));
+	// invalid hours&minutes&seconds combinations
 	CHECK_THROWS(parse_iso8601datetime("1970-01-01T24:10:13"));
-	CHECK_NOTHROW(parse_iso8601datetime("1970-01-01T24:00:00"));
 	CHECK_THROWS(parse_iso8601datetime("1970-01-01T24:00:13"));
+	CHECK_THROWS(parse_iso8601datetime<std::chrono::milliseconds>("1970-01-01T24:00:00.1"));
+	// seconds resolution ignores decimals
+	CHECK_NOTHROW(parse_iso8601datetime("1970-01-01T24:00:00.1"));
+	// this may be a valid value
+	CHECK_NOTHROW(parse_iso8601datetime("1970-01-01T24:00:00"));
 	// invalid minutes
 	CHECK_THROWS(parse_iso8601datetime("1970-01-01T22:60:13"));
 	// invalid seconds
 	CHECK_THROWS(parse_iso8601datetime("1970-01-01T22:30:61"));
-	CHECK_NOTHROW(parse_iso8601datetime("1970-01-01T22:30:60"));
 	CHECK_THROWS(parse_iso8601datetime<std::chrono::milliseconds>("1970-01-01T22:30:60.1"));
+	// this may be a valid value
+	CHECK_NOTHROW(parse_iso8601datetime("1970-01-01T22:30:60"));
 }
 
 TEST_CASE("parse_iso8601 throws exception for invalid timezone offset")
@@ -630,4 +648,27 @@ TEST_CASE("parse_iso8601 throws exception for invalid timezone offset")
 	CHECK_NOTHROW(parse_iso8601datetime("1970-01-01T23:10:13+02:00"));
 	CHECK_NOTHROW(parse_iso8601datetime("1970-01-01T23:10:13+01:00"));
 	CHECK_NOTHROW(parse_iso8601datetime("1970-01-01T23:10:13+00:00"));
+
+	// invalid offsets
+	CHECK_THROWS(parse_iso8601datetime("1970-01-01T23:10:13-12:30"));
+	CHECK_THROWS(parse_iso8601datetime("1970-01-01T23:10:13-11:30"));
+	CHECK_THROWS(parse_iso8601datetime("1970-01-01T23:10:13-10:30"));
+	CHECK_THROWS(parse_iso8601datetime("1970-01-01T23:10:13-08:30"));
+	CHECK_THROWS(parse_iso8601datetime("1970-01-01T23:10:13-07:30"));
+	CHECK_THROWS(parse_iso8601datetime("1970-01-01T23:10:13-06:30"));
+	CHECK_THROWS(parse_iso8601datetime("1970-01-01T23:10:13-05:30"));
+	CHECK_THROWS(parse_iso8601datetime("1970-01-01T23:10:13-04:30"));
+	CHECK_THROWS(parse_iso8601datetime("1970-01-01T23:10:13-02:30"));
+	CHECK_THROWS(parse_iso8601datetime("1970-01-01T23:10:13-01:30"));
+	CHECK_THROWS(parse_iso8601datetime("1970-01-01T23:10:13-00:30"));
+
+	CHECK_THROWS(parse_iso8601datetime("1970-01-01T23:10:13+14:30"));
+	CHECK_THROWS(parse_iso8601datetime("1970-01-01T23:10:13+13:30"));
+	CHECK_THROWS(parse_iso8601datetime("1970-01-01T23:10:13+12:30"));
+	CHECK_THROWS(parse_iso8601datetime("1970-01-01T23:10:13+11:30"));
+	CHECK_THROWS(parse_iso8601datetime("1970-01-01T23:10:13+08:30"));
+	CHECK_THROWS(parse_iso8601datetime("1970-01-01T23:10:13+07:30"));
+	CHECK_THROWS(parse_iso8601datetime("1970-01-01T23:10:13+02:30"));
+	CHECK_THROWS(parse_iso8601datetime("1970-01-01T23:10:13+01:30"));
+	CHECK_THROWS(parse_iso8601datetime("1970-01-01T23:10:13+00:30"));
 }
