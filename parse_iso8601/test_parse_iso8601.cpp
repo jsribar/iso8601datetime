@@ -96,13 +96,13 @@ TEST_CASE("parse_iso8601 returns valid date&time for a general date and time for
 	{
 		ostringstream ss;
 		ss << parse_iso8601datetime<std::chrono::minutes>("2020-01-02T01:00:30.987Z");
-		CHECK(ss.str() == "2020-01-02 01:00:00");
+		CHECK(ss.str() == "2020-01-02 01:00");
 	}
 	// hours
 	{
 		ostringstream ss;
 		ss << parse_iso8601datetime<std::chrono::hours>("2020-01-02T01:30:30Z");
-		CHECK(ss.str() == "2020-01-02 01:00:00");
+		CHECK(ss.str() == "2020-01-02 0100");
 	}
 }
 
@@ -604,6 +604,10 @@ TEST_CASE("parse_iso8601 throws exception for invalid timezone offset")
 	CHECK_THROWS(parse_iso8601datetime("1970-01-01T23:10:13+15"));
 	CHECK_THROWS(parse_iso8601datetime("1970-01-01T23:10:13-13"));
 	// offset in invalid format
+	CHECK_THROWS(parse_iso8601datetime("1970-01-01T23:10:13+"));
+	CHECK_THROWS(parse_iso8601datetime("1970-01-01T23:10:13-"));
+	CHECK_THROWS(parse_iso8601datetime("1970-01-01T23:10:13+1"));
+	CHECK_THROWS(parse_iso8601datetime("1970-01-01T23:10:13-1"));
 	CHECK_THROWS(parse_iso8601datetime("1970-01-01T23:10:13+00:60"));
 	CHECK_THROWS(parse_iso8601datetime("1970-01-01T23:10:13/12:30"));
 

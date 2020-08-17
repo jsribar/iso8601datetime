@@ -9,7 +9,8 @@
 
 namespace core::time {
 
-enum class iso8601_required {
+enum class iso8601_required
+{
     YYYY,
     YYYYMM,
     YYYYMMDD,
@@ -22,20 +23,20 @@ template <class Duration = std::chrono::seconds>
 using time_point = std::chrono::time_point<std::chrono::system_clock, Duration>;
 
 template <typename Duration = std::chrono::seconds>
-inline time_point<Duration> parse_iso8601datetime(std::string_view date, iso8601_required required = iso8601_required::YYYYMMDDhhmmss)
+inline time_point<Duration>
+parse_iso8601datetime(std::string_view date,
+                      iso8601_required required = iso8601_required::YYYYMMDDhhmmss)
 {
     // helper lambdas
     auto is_digit = [](const char ch) { return ch >= '0' && ch <= '9'; };
 
-    auto to_digit = [&is_digit](const char ch)
-    {
+    auto to_digit = [&is_digit](const char ch) {
         if (!is_digit(ch))
             throw std::runtime_error("Not a digit");
         return ch - '0';
     };
 
-    auto integer = [&to_digit, &date](int digits)
-    {
+    auto integer = [&to_digit, &date](int digits) {
         unsigned int number{ 0 };
         while (digits-- > 0)
         {
@@ -47,8 +48,7 @@ inline time_point<Duration> parse_iso8601datetime(std::string_view date, iso8601
         return number;
     };
 
-    auto decimal = [&to_digit, &is_digit, &date](int digits)
-    {
+    auto decimal = [&to_digit, &is_digit, &date](int digits) {
         unsigned long long number{ 0 };
         unsigned long long divisor{ 1 };
         while (digits-- > 0)
@@ -71,8 +71,7 @@ inline time_point<Duration> parse_iso8601datetime(std::string_view date, iso8601
         return std::make_pair(number, divisor);
     };
 
-    auto is_positive_sign = [&date]()
-    {
+    auto is_positive_sign = [&date]() {
         assert(!date.empty());
         if (date[0] == '+')
         {
@@ -85,7 +84,7 @@ inline time_point<Duration> parse_iso8601datetime(std::string_view date, iso8601
             return false;
         }
         // utf-8 minus sign
-        if (date.size() > 3 && date.substr(0, 3) == "\xe2\x88\x92")
+        if (date.size() >= 3 && date.substr(0, 3) == "\xe2\x88\x92")
         {
             date.remove_prefix(3);
             return false;
@@ -95,7 +94,7 @@ inline time_point<Duration> parse_iso8601datetime(std::string_view date, iso8601
 
     struct timezone_offset_t
     {
-        bool positive;
+        bool         positive;
         unsigned int hours;
         unsigned int minutes;
 
@@ -153,7 +152,7 @@ inline time_point<Duration> parse_iso8601datetime(std::string_view date, iso8601
         unsigned int date_components[3];
         struct
         {
-            int year;
+            int          year;
             unsigned int month;
             unsigned int day;
         } d{ 0, 1, 1 };
@@ -171,14 +170,13 @@ inline time_point<Duration> parse_iso8601datetime(std::string_view date, iso8601
     };
 
     unsigned long long decimals{ 0 };
-    timezone_offset_t offset{ true, 0, 0 };
+    timezone_offset_t  offset{ true, 0, 0 };
 
     int parsed{ 0 };
 
     boost::tribool has_separator{ boost::indeterminate };
 
-    auto process_separator = [&date, &has_separator](char separator)
-    {
+    auto process_separator = [&date, &has_separator](char separator) {
         if (indeterminate(has_separator))
             has_separator = date[0] == separator;
         else if (has_separator != (date[0] == separator))
@@ -210,23 +208,19 @@ inline time_point<Duration> parse_iso8601datetime(std::string_view date, iso8601
             throw std::runtime_error("Delimiter 'T' is missing after date");
         date.remove_prefix(1);
 
-        constexpr unsigned long long multipliers[]
-        {
-            Duration::period::den * 60 * 60,
-            Duration::period::den * 60,
-            Duration::period::den
-        };
+        constexpr unsigned long long multipliers[]{ Duration::period::den * 60 * 60,
+                                                    Duration::period::den * 60,
+                                                    Duration::period::den };
 
-        auto is_end_of_time = [&date]()
-        {
-            return date.empty() || date[0] == 'Z' || date[0] == '+' ||
-                date[0] == '-' || date[0] == '\xe2';
+        auto is_end_of_time = [&date]() {
+            return date.empty() || date[0] == 'Z' || date[0] == '+' || date[0] == '-' ||
+                   date[0] == '\xe2';
         };
         // read hours, minutes, seconds
         for (int i = 0; i < 3; ++i)
         {
             auto [digits, divisor] = decimal(2);
-            time_components[i] = static_cast<unsigned int>(digits / divisor);
+            time_components[i]     = static_cast<unsigned int>(digits / divisor);
             ++parsed;
             if (divisor != 1)
                 decimals = digits % divisor * multipliers[i] / divisor;
@@ -241,10 +235,11 @@ inline time_point<Duration> parse_iso8601datetime(std::string_view date, iso8601
         {
             if (date[0] == 'Z')
                 date.remove_prefix(1);
-            else {
+            else
+            {
                 // read timezone offset
                 offset.positive = is_positive_sign();
-                offset.hours = integer(2);
+                offset.hours    = integer(2);
 
                 if (!date.empty())
                 {
@@ -269,9 +264,9 @@ inline time_point<Duration> parse_iso8601datetime(std::string_view date, iso8601
         throw std::runtime_error("Incomplete time");
     }
 
-    using date::year;
-    using date::month;
     using date::day;
+    using date::month;
+    using date::year;
     using date::year_month_day;
 
     const year_month_day& ymd{ year{ d.year }, month{ d.month }, day{ d.day } };
@@ -280,8 +275,7 @@ inline time_point<Duration> parse_iso8601datetime(std::string_view date, iso8601
 
     // 60 seconds is used to denote an added leap second
     // "24:00" may be used for midnight
-    if (t.hours > 24 ||
-        (t.hours == 24 && (t.minutes != 0 || t.seconds != 0 || decimals != 0)) ||
+    if (t.hours > 24 || (t.hours == 24 && (t.minutes != 0 || t.seconds != 0 || decimals != 0)) ||
         t.minutes > 59 || t.seconds > 60 || (t.seconds == 60 && decimals != 0))
         throw std::runtime_error("Invalid time");
 
@@ -293,8 +287,11 @@ inline time_point<Duration> parse_iso8601datetime(std::string_view date, iso8601
     constexpr sys_days ref_tp{ year{ 1970 } / month{ 1 } / day{ 1 } };
 
     long long days = (sys_days{ ymd } - ref_tp).count();
-    auto count = ((((days * 24 + t.hours) * 60 + t.minutes - offset.to_minutes()) * 60 + t.seconds) *
-        Duration::period::den + decimals) / Duration::period::num;
+    auto      count =
+        ((((days * 24 + t.hours) * 60 + t.minutes - offset.to_minutes()) * 60 + t.seconds) *
+             Duration::period::den +
+         decimals) /
+        Duration::period::num;
     return time_point<Duration>{ Duration{ count } };
 }
 
